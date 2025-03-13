@@ -4,139 +4,116 @@ from playwright.sync_api import sync_playwright
 
 # Configuración de SonarQube
 SONAR_URL = "http://localhost:9000/api/rules/search"
-SONAR_TOKEN = "sqa_ec70402908a851a3082005c2e10ccbbf597a5c19"  # Reemplaza con tu token de SonarQube
-LANGUAGES = ["java", "html", "javascript"]  # Lista de lenguajes a consultar
-PAGE_SIZE = 500  # Número de reglas por página
+TOKEN = "sqa_ec70402908a851a3082005c2e10ccbbf597a5c19"
+LANGUAGES = ["js","web"]  # Puedes agregar más lenguajes aquí
+PAGE_SIZE = 500
 
-# Función para obtener reglas de SonarQube con autenticación y paginación
-def fetch_sonar_rules(language):
-    rules = []
-    page = 1
+HEADERS = {
+    "Authorization": f"Bearer {TOKEN}"
+}
 
-    headers = {
-        "Authorization": f"Bearer {SONAR_TOKEN}"
-    }
-    
+rules_by_language = {}
+
+# Obtener reglas por lenguaje
+for lang in LANGUAGES:
+    page_number = 1
+    rules_by_language[lang] = []
+
     while True:
-        print(f" Obteniendo reglas para {language} - Página {page}...")
-        response = requests.get(SONAR_URL, params={"languages": language, "ps": PAGE_SIZE, "p": page}, headers=headers)
-        
+        response = requests.get(f"{SONAR_URL}?languages={lang}&ps={PAGE_SIZE}&p={page_number}", headers=HEADERS)
+
         if response.status_code != 200:
-            print(f" Error al obtener reglas para {language}: {response.status_code} - {response.text}")
             break
-        
+
         data = response.json()
-        
-        if "rules" not in data:
-            print(f" No se encontraron reglas para {language}")
+        rules = data.get("rules", [])
+        if not rules:
             break
 
-        # Filtrar solo reglas con status "READY"
-        filtered_rules = [rule for rule in data["rules"] if rule.get("status", "").upper() == "READY"]
-        rules.extend(filtered_rules)
+        rules_by_language[lang].extend(rules)
 
-        # Si ya no hay más páginas, terminamos
-        if page * PAGE_SIZE >= data.get("total", 0):
+        if len(rules) < PAGE_SIZE:
             break
 
-        page += 1
+        page_number += 1
 
-    return rules
-
-# Construir contenido HTML
+# Generar HTML
 html_content = """
 <html>
 <head>
     <meta charset="UTF-8">
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            padding: 1,3cm; /* Márgenes de 2 cm */
-        }
+        body { font-family: Arial, sans-serif; padding: 1.2cm; margin: 0; }
         h1 { color: blue; text-align: center; }
         h2 { color: darkred; }
-        h3 { color: darkblue; }
+        h3 { color: #333; }
         p { font-size: 14px; line-height: 1.6; }
-        .severity { font-weight: bold; color: green; }
-        .section-title { font-weight: bold; font-style: italic; }
-        .page-number { position: fixed; bottom: 10px; right: 10px; font-size: 12px; }
-        .toc { margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9; }
-        .toc a { text-decoration: none; color: blue; font-weight: bold; }
-        .toc a:hover { text-decoration: underline; }
-        .rule { border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 10px; }
+        a { text-decoration: none; color: blue; }
+        hr { border: 1px solid #ddd; margin: 20px 0; }
+        .toc { border: 1px solid black; padding: 10px; margin: 20px 0; }
+        .page-number { text-align: center; font-size: 12px; margin-top: 10px; }
     </style>
 </head>
 <body>
     <h1>Reporte de Reglas de SonarQube</h1>
-
     <div class="toc">
         <h2>Tabla de Contenido</h2>
 """
 
-# Agregar tabla de contenido con enlaces a cada lenguaje
-for language in LANGUAGES:
-    html_content += f'<p><a href="#{language}">{language.upper()}</a></p>'
+# Tabla de contenido con links
+for lang in LANGUAGES:
+    html_content += f'<p><a href="#{lang}">{lang.upper()}</a></p>'
 
 html_content += "</div>"
 
-# Obtener reglas de todos los lenguajes
-for language in LANGUAGES:
-    rules = fetch_sonar_rules(language)
-
-    if rules:
-        html_content += f'<h2 id="{language}">{language.upper()}</h2>'
+# Agregar las reglas por lenguaje
+for lang, rules in rules_by_language.items():
+    html_content += f'<h2 id="{lang}">{lang.upper()}</h2>'
     
     for rule in rules:
-        rule_name = rule.get("name", "Sin nombre")
-        rule_key = rule.get("key", "Sin clave")
-        severity = rule.get("severity", "Desconocido")
-        description_sections = rule.get("descriptionSections", [])
+        html_content += f'<h3>{rule.get("name", "Sin nombre")}</h3>'
+        html_content += f'<p><strong>Clave:</strong> {rule.get("key", "N/A")}</p>'
+        html_content += f'<p><strong>Severidad:</strong> {rule.get("severity", "N/A")}</p>'
+        html_content += f'<p><strong>Impacto:</strong> {rule.get("impact", "N/A")}</p>'
+        html_content += f'<p><strong>Descripción:</strong> {rule.get("htmlDescription", "No disponible")}</p>'
 
-        html_content += f"""
-        <div class="rule">
-            <h3>{rule_name} ({rule_key})</h3>
-            <p class="severity">Severidad: {severity}</p>
-        """
+        # Agregar descriptionSections si existen
+        if "descriptionSections" in rule:
+            for section in rule["descriptionSections"]:
+                html_content += f'<h4>{section.get("key", "Sección")}</h4>'
+                html_content += f'<p>{section.get("content", "Sin contenido")}</p>'
 
-        # Agregar las secciones de descripción
-        for section in description_sections:
-            section_key = section.get("key", "Sin título").capitalize()
-            section_content = section.get("content", "No hay contenido disponible")
+        html_content += "<hr>"
 
-            html_content += f"""
-            <p class="section-title">{section_key}:</p>
-            <p>{section_content}</p>
-            """
+html_content += """
+</body></html>
+"""
 
-        html_content += "</div>"
-
-html_content += '<div class="page-number">Página <span class="pageNumber"></span></div>'
-html_content += "</body></html>"
-
-# Guardar HTML en un archivo
-html_filename = "reporte.html"
-with open(html_filename, "w", encoding="utf-8") as file:
-    file.write(html_content)
-
-# Convertir HTML a PDF con Playwright, agregando números de página
-pdf_filename = "outputSalida.pdf"
+# Generar PDF con numeración de páginas
+pdf_filename = "outputReport.pdf"
 
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page()
-    page.goto(f"file:///{html_filename}")
-
-    # Agregar números de página en el PDF
-    page.evaluate("""
-        () => {
-            let pages = document.querySelectorAll('.page-number');
-            pages.forEach((el, index) => el.innerText = 'Página ' + (index + 1));
-        }
-    """)
-
-    # Generar el PDF con tamaño carta y márgenes de 2 cm
-    page.pdf(path=pdf_filename, format="letter", margin={"top": "2cm", "bottom": "2cm", "left": "2cm", "right": "2cm"})
-
+    
+    # Cargar contenido HTML
+    page.set_content(html_content)
+    
+    # Generar PDF con márgenes y numeración
+    page.pdf(
+        path=pdf_filename,
+        format="Letter",
+        margin={"top": "1cm", "right": "1.2cm", "bottom": "1.2cm", "left": "1.2cm"},
+        display_header_footer=True,
+        header_template='',
+        footer_template='''
+            <div style="width:100%; text-align:center; font-size:10px;">
+                Página <span class="pageNumber"></span> de <span class="totalPages"></span>
+            </div>
+        ''',
+        print_background=True
+    )
+    
     browser.close()
 
-print(f" PDF generado con éxito: {pdf_filename}")
+print(f"PDF generado con éxito: {pdf_filename}")
